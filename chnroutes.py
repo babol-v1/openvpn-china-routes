@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-import re
 import urllib.request
 import sys
-import math
 
 def generate_ovpn_routes():
-    url = 'https://apnic.net'
-    print("正在从 APNIC 抓取最新全球 IP 分配表...")
+    # 改用社区长期高可用、CDN 加速的中国 IPv4 地址列表镜像源
+    url = 'https://githubusercontent.com'
+    print("正在从稳定镜像源抓取最新中国 IP 列表...")
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -17,47 +16,52 @@ def generate_ovpn_routes():
         with urllib.request.urlopen(req, timeout=60) as response:
             data = response.read().decode('utf-8')
     except Exception as e:
-        print(f"数据抓取失败: {e}", file=sys.stderr)
-        sys.exit(1)
+        # 如果备用源出问题，尝试另一个极速源
+        print(f"主源抓取失败，正在尝试备用极速源... 错误原因: {e}")
+        try:
+            url_backup = 'https://oncept.top'
+            req = urllib.request.Request(url_backup, headers=headers)
+            with urllib.request.urlopen(req, timeout=60) as response:
+                data = response.read().decode('utf-8')
+        except Exception as e2:
+            print(f"所有数据源抓取失败: {e2}", file=sys.stderr)
+            sys.exit(1)
         
-    print("正在解析中国大陆 IPv4 网段...")
+    print("正在转换为 OpenVPN 绕行路由格式...")
     routes = []
     
-    # 使用通用的正则表达式匹配中国大陆的 ipv4 行，防范各镜像源开头的格式差异
-    # 格式通常形如: xxx|cn|ipv4|1.0.1.0|256|...
-    pattern = re.compile(r'cn\|ipv4\|([\d\.]+)\|(\d+)\|', re.IGNORECASE)
-    
+    # 该数据源每行直接是标准 CIDR 格式，例如: 1.0.1.0/24
     for line in data.splitlines():
-        match = pattern.search(line)
-        if match:
-            ip = match.group(1)
-            count = int(match.group(2))
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
             
+        if '/' in line:
+            parts = line.split('/')
+            ip = parts[0]
             try:
-                # 计算子网掩码长度 (例如 256 对应 /24)
-                mask_cidr = 32 - int(math.log(count, 2))
-                
-                # 将 CIDR 长度转换为 4 段点分十进制掩码 (e.g. 255.255.255.0)
-                mask_bits = (0xffffffff << (32 - mask_cidr)) & 0xffffffff
+                cidr = int(parts[1])
+                # 将 CIDR 位数（如 24）无损转换为四段式子网掩码（如 255.255.255.0）
+                mask_bits = (0xffffffff << (32 - cidr)) & 0xffffffff
                 mask_str = f"{(mask_bits >> 24) & 255}.{(mask_bits >> 16) & 255}.{(mask_bits >> 8) & 255}.{mask_bits & 255}"
                 
+                # 写入带有默认跃点数 5 的 net_gateway 绕行规则
                 routes.append(f"route {ip} {mask_str} net_gateway 5")
-            except Exception as parse_err:
-                # 略过可能由于垃圾数据导致的计算错误行
+            except Exception:
                 continue
 
     if not routes:
-        print("错误：未能成功解析到任何中国 IP 段！请检查抓取到的原始数据格式。", file=sys.stderr)
+        print("错误：未能从列表中解析到有效的中国 IP 段！", file=sys.stderr)
         sys.exit(1)
 
-    print(f"解析成功！共找到 {len(routes)} 个网段。正在写入 routes.txt...")
+    print(f"解析成功！共转换了 {len(routes)} 个合规中国大陆网段。正在写入 routes.txt...")
     
     with open('routes.txt', 'w', encoding='utf-8') as f:
         f.write("# === 全量中国大陆 IP 绕行路由表 (GitHub Actions 自动更新) ===\n")
         f.write("\n".join(routes))
         f.write("\n")
         
-    print("routes.txt 文件已成功生成！")
+    print("routes.txt 文件已顺利生成完毕！")
 
 if __name__ == '__main__':
     generate_ovpn_routes()
