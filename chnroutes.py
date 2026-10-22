@@ -2,10 +2,10 @@
 import urllib.request
 import sys
 
-def generate_android_routes():
-    # 采用你指定的 MetaCubeX 官方最新全量中国 GeoIP 地址列表
-    url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/meta/geo/geoip/cn.list'
-    print("正在从 MetaCubeX 镜像源抓取最新中国 IP 列表...")
+def generate_ovpn_compatible_routes():
+    # 依然采用你指定的 MetaCubeX 官方最新全量中国 GeoIP 地址列表
+    url = 'https://githubusercontent.com'
+    print("正在从 MetaCubeX 镜像源抓取最新中国双栈 IP 列表...")
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -19,33 +19,46 @@ def generate_android_routes():
         print(f"数据抓取失败: {e}", file=sys.stderr)
         sys.exit(1)
         
-    print("正在过滤 IPv6 并转换为 OpenVPN Android 客户端专用排除格式...")
-    routes = []
+    print("正在分类解析并转换为可直接添加至 .ovpn 的路由指令...")
+    routes_v4 = []
+    routes_v6 = []
     
     for line in data.splitlines():
         line = line.strip()
-        # 跳过空行和注释行
         if not line or line.startswith('#'):
             continue
             
-        # 核心过滤：只有含有 '/' 且绝对不含 ':' 冒号的才是合规的 IPv4 网段
-        if '/' in line and ':' not in line:
-            # 蓝色客户端导入极其方便，可以直接识别标准 CIDR (如 1.0.1.0/24) 格式的行
-            # 只要每行只留 IPv4 即可，无需再加上 net_gateway 的尾巴，客户端会自动识别为排除
-            routes.append(line)
+        if '/' in line:
+            # 特殊防御：过滤掉 Clash 特有的 0.0.0.0/32 广播或异常网段
+            if line.startswith("0.0.0.0"):
+                continue
+                
+            # 区分 IPv4 和 IPv6 并自动拼装为 .ovpn 专用的全局配置指令格式
+            if ':' in line:
+                # 包含冒号的是 IPv6 网段，拼装为 route-ipv6 指令
+                routes_v6.append(f"route-ipv6 {line} net_gateway")
+            else:
+                # 不含冒号的是 IPv4 网段，拼装为 route 指令
+                routes_v4.append(f"route {line} net_gateway")
 
-    if not routes:
+    if not routes_v4:
         print("错误：未能在数据源中解析到任何有效的 IPv4 中国网段！", file=sys.stderr)
         sys.exit(1)
 
-    print(f"解析成功！共转换了 {len(routes)} 条合规的中国大陆 IPv4 排除规则。")
+    print(f"解析成功！共转换 IPv4 路由指令 {len(routes_v4)} 条，IPv6 路由指令 {len(routes_v6)} 条。")
     
-    # 写入文件
+    # 分别保存为两个独立的、可直接追加到 .ovpn 末尾的文件
     with open('routes.txt', 'w', encoding='utf-8') as f:
-        f.write("\n".join(routes))
+        f.write("# === 全量中国大陆 IPv4 绕行路由表（可直接追加至 .ovpn 末尾） ===\n")
+        f.write("\n".join(routes_v4))
         f.write("\n")
         
-    print("用于蓝色客户端独立导入的 routes.txt 文件已成功生成！")
+    with open('routes_v6.txt', 'w', encoding='utf-8') as f:
+        f.write("# === 全量中国大陆 IPv6 绕行路由表（可直接追加至 .ovpn 末尾） ===\n")
+        f.write("\n".join(routes_v6))
+        f.write("\n")
+        
+    print("routes.txt (IPv4版) 与 routes_v6.txt (IPv6版) 已全部完美生成！")
 
 if __name__ == '__main__':
-    generate_android_routes()
+    generate_ovpn_routes = generate_ovpn_compatible_routes()
