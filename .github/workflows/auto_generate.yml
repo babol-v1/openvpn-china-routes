@@ -23,7 +23,7 @@ jobs:
       with:
         python-version: '3.x'
 
-    # 3. 运行你的 python 脚本生成 routes.txt
+    # 3. 运行你的 python 脚本生成两条路由表
     - name: Run chnroutes script
       run: |
         if [ -f chnroutes.py ]; then
@@ -33,17 +33,17 @@ jobs:
           exit 1
         fi
 
-    # 4. 自动把新生成的 routes.txt 提交并上传（Push）回你的 GitHub 仓库
+    # 4. 自动把新生成的两条双栈路由表全部提交并上传（Push）回你的 GitHub 仓库
     - name: Commit and push changes
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "41898282+github-actions[bot]@://github.com"
         
-        # 检查文件是否有变动，有变动则提交
-        git add routes.txt
+        # 【核心修复】使用 git add . 自动抓取所有新生成的 routes.txt 和 routes_v6.txt
+        git add .
         if git diff --staged --quiet; then
           echo "路由表没有变化，无需更新。"
         else
-          git commit -m "自动更新: 重新生成最新的全量中国大陆路由表"
+          git commit -m "自动更新: 重新生成最新的全量中国大陆双栈 IPv4/IPv6 路由表"
           git push
         fi
