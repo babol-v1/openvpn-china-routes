@@ -6,8 +6,15 @@ import sys
 def fetch_chnroutes():
     url = 'http://apnic.net'
     print("正在从 APNIC 抓取最新数据...")
+    
+    # 模拟真实浏览器，防止被服务器 403 拒绝
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
     try:
-        response = urllib.request.urlopen(url, timeout=30)
+        req = urllib.request.Request(url, headers=headers)
+        response = urllib.request.urlopen(req, timeout=30)
         return response.read().decode('utf-8')
     except Exception as e:
         print(f"抓取数据失败: {e}")
