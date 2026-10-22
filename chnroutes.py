@@ -4,7 +4,7 @@ import sys
 
 def generate_ovpn_compatible_routes():
     # 依然采用你指定的 MetaCubeX 官方最新全量中国 GeoIP 地址列表
-    url = 'https://githubusercontent.com'
+    url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/meta/geo/geoip/cn.list'
     print("正在从 MetaCubeX 镜像源抓取最新中国双栈 IP 列表...")
     
     headers = {
