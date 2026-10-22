@@ -2,66 +2,248 @@
 import re
 import urllib.request
 import sys
+import argparse
+import math
+import textwrap
 
-def fetch_chnroutes():
-    url = 'http://apnic.net'
-    print("正在从 APNIC 抓取最新数据...")
+def generate_ovpn(metric):
+    results = fetch_ip_data()  
+    rfile = open('routes.txt', 'w', encoding='utf-8')
+    for ip, mask, _ in results:
+        route_item = "route %s %s net_gateway %d\n" % (ip, mask, metric)
+        rfile.write(route_item)
+    rfile.close()
+    print("Usage: Append the content of the newly created routes.txt to your openvpn config file," \
+          " and also add 'max-routes %d', which takes a line, to the head of the file." % (len(results) + 20))
+
+def generate_linux(metric):
+    results = fetch_ip_data()
+    upscript_header = textwrap.dedent("""\
+    #!/bin/bash
+    export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
     
-    # 模拟真实浏览器，防止被服务器 403 拒绝
+    OLDGW=`ip route show | grep '^default' | sed -e 's/default via \\([^ ]*\\).*/\\1/'`
+    
+    if [ $OLDGW == '' ]; then
+        exit 0
+    fi
+    
+    if [ ! -e /tmp/vpn_oldgw ]; then
+        echo $OLDGW > /tmp/vpn_oldgw
+    fi
+    
+    """)
+    
+    downscript_header = textwrap.dedent("""\
+    #!/bin/bash
+    export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
+    
+    OLDGW=`cat /tmp/vpn_oldgw`
+    
+    """)
+    
+    upfile = open('ip-pre-up', 'w', encoding='utf-8')
+    downfile = open('ip-down', 'w', encoding='utf-8')
+    
+    upfile.write(upscript_header)
+    upfile.write('\n')
+    downfile.write(downscript_header)
+    downfile.write('\n')
+    
+    for ip, mask, _ in results:
+        upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
+        downfile.write('route del -net %s netmask %s\n' % (ip, mask))
+
+    downfile.write('rm /tmp/vpn_oldgw\n')
+    upfile.close()
+    downfile.close()
+    print("For pptp only, please copy the file ip-pre-up to the folder /etc/ppp, and copy the file ip-down to the folder /etc/ppp/ip-down.d.")
+
+def generate_mac(metric):
+    results = fetch_ip_data()
+    
+    upscript_header = textwrap.dedent("""\
+    #!/bin/sh
+    export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
+    
+    OLDGW=`netstat -nr | grep '^default' | grep -v 'ppp' | sed 's/default *\\([0-9\.]*\\) .*/\\1/' | awk '{if($1){print $1}}'`
+
+    if [ ! -e /tmp/pptp_oldgw ]; then
+        echo "${OLDGW}" > /tmp/pptp_oldgw
+    fi
+    
+    dscacheutil -flushcache
+
+    route add 10.0.0.0/8 "${OLDGW}"
+    route add 172.16.0.0/12 "${OLDGW}"
+    route add 192.168.0.0/16 "${OLDGW}"
+    """)
+    
+    downscript_header = textwrap.dedent("""\
+    #!/bin/sh
+    export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
+    
+    if [ ! -e /tmp/pptp_oldgw ]; then
+            exit 0
+    fi
+    
+    OLDGW=`cat /tmp/pptp_oldgw`
+
+    route delete 10.0.0.0/8 "${OLDGW}"
+    route delete 172.16.0.0/12 "${OLDGW}"
+    route delete 192.168.0.0/16 "${OLDGW}"
+    """)
+    
+    upfile = open('ip-up', 'w', encoding='utf-8')
+    downfile = open('ip-down', 'w', encoding='utf-8')
+    
+    upfile.write(upscript_header)
+    upfile.write('\n')
+    downfile.write(downscript_header)
+    downfile.write('\n')
+    
+    for ip, _, mask in results:
+        upfile.write('route add %s/%s "${OLDGW}"\n' % (ip, mask))
+        downfile.write('route delete %s/%s ${OLDGW}\n' % (ip, mask))
+    
+    downfile.write('\n\nrm /tmp/pptp_oldgw\n')
+    upfile.close()
+    downfile.close()
+    print("For pptp on mac only, please copy ip-up and ip-down to the /etc/ppp folder, don't forget to make them executable with the chmod command.")
+
+def generate_win(metric):
+    results = fetch_ip_data()  
+
+    upscript_header = textwrap.dedent("""@echo off
+    for /F "tokens=3" %%* in ('route print ^| findstr "\\<0.0.0.0\\>"') do set "gw=%%*"
+    
+    """)
+    
+    upfile = open('vpnup.bat', 'w', encoding='utf-8')
+    downfile = open('vpndown.bat', 'w', encoding='utf-8')
+    
+    upfile.write(upscript_header)
+    upfile.write('\n')
+    upfile.write('ipconfig /flushdns\n\n')
+    
+    downfile.write("@echo off\n")
+    
+    for ip, mask, _ in results:
+        upfile.write('route add %s mask %s %s metric %d\n' % (ip, mask, "%gw%", metric))
+        downfile.write('route delete %s\n' % (ip))
+    
+    upfile.close()
+    downfile.close()
+    print("For pptp on windows only, run vpnup.bat before dialing to vpn, and run vpndown.bat after disconnected from the vpn.")
+
+def generate_android(metric):
+    results = fetch_ip_data()
+    
+    upscript_header = textwrap.dedent("""\
+    #!/bin/sh
+    alias nestat='/system/xbin/busybox netstat'
+    alias grep='/system/xbin/busybox grep'
+    alias awk='/system/xbin/busybox awk'
+    alias route='/system/xbin/busybox route'
+    
+    OLDGW=`netstat -rn | grep ^0\.0\.0\.0 | awk '{print $2}'`
+    
+    """)
+    
+    downscript_header = textwrap.dedent("""\
+    #!/bin/sh
+    alias route='/system/xbin/busybox route'
+    
+    """)
+    
+    upfile = open('vpnup.sh', 'w', encoding='utf-8')
+    downfile = open('vpndown.sh', 'w', encoding='utf-8')
+    
+    upfile.write(upscript_header)
+    upfile.write('\n')
+    downfile.write(downscript_header)
+    downfile.write('\n')
+    
+    for ip, mask, _ in results:
+        upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
+        downfile.write('route del -net %s netmask %s\n' % (ip, mask))
+    
+    upfile.close()
+    downfile.close()
+    print("Old school way to call up/down script from openvpn client. use the regular openvpn 2.1 method to add routes if it's possible")
+
+def fetch_ip_data():
+    print("Fetching data from apnic.net, it might take a few minutes, please wait...")
+    url = r'https://apnic.net'
+    
+    # 【核心修复】模拟真实浏览器请求，防止 APNIC 服务器报 403 拒绝访问
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
     try:
         req = urllib.request.Request(url, headers=headers)
-        response = urllib.request.urlopen(req, timeout=30)
-        return response.read().decode('utf-8')
+        with urllib.request.urlopen(req, timeout=60) as response:
+            data = response.read().decode('utf-8')
     except Exception as e:
-        print(f"抓取数据失败: {e}")
+        print(f"抓取数据失败: {e}", file=sys.stderr)
         sys.exit(1)
-
-def generate_routes():
-    data = fetch_chnroutes()
-    routes = []
     
-    # 匹配中国大陆的 IPv4 分配网段
-    pattern = re.compile(r'apnic\|cn\|ipv4\|([\d\.]+)\|(\d+)\|', re.IGNORECASE)
+    cnregex = re.compile(r'apnic\|cn\|ipv4\|[0-9\.]+\|[0-9]+\|[0-9]+\|a.*', re.IGNORECASE)
+    cndata = cnregex.findall(data)
     
-    for match in pattern.finditer(data):
-        ip = match.group(1)
-        count = int(match.group(2))
-        
-        # 将 IP 数量转换为子网掩码长度
-        mask_len = 32
-        while count > 1:
-            count >>= 1
-            mask_len -= 1
-            
-        # 将掩码长度转换为点分十进制格式 (e.g. 255.255.255.0)
-        mask = []
-        for i in range(4):
-            if mask_len >= 8:
-                mask.append(255)
-                mask_len -= 8
-            elif mask_len > 0:
-                mask.append(256 - (1 << (8 - mask_len)))
-                mask_len = 0
-            else:
-                mask.append(0)
-                
-        mask_str = ".".join(map(str, mask))
-        routes.append(f"route {ip} {mask_str} net_gateway")
+    results = []
 
-    if not routes:
-        print("未提取到任何有效的中国 IP 网段，请检查网络。")
-        sys.exit(1)
-
-    with open('routes.txt', 'w', encoding='utf-8') as f:
-        f.write("# === 全量中国大陆 IP 绕行路由表 (Python3 自动生成) ===\n")
-        f.write("\n".join(routes))
-        f.write("\n")
+    for item in cndata:
+        unit_items = item.split('|')
+        starting_ip = unit_items[3]
+        num_ip = int(unit_items[4])
         
-    print(f"成功生成 routes.txt，共包含 {len(routes)} 条路由规则！")
+        imask = 0xffffffff ^ (num_ip - 1)
+        imask = hex(imask)[2:]
+        # 补足 8 位
+        imask = imask.zfill(8)
+        
+        mask = [0] * 4
+        mask[0] = imask[0:2]
+        mask[1] = imask[2:4]
+        mask[2] = imask[4:6]
+        mask[3] = imask[6:8]
+        
+        mask = [int(i, 16) for i in mask]
+        mask = "%d.%d.%d.%d" % tuple(mask)
+        
+        mask2 = 32 - int(math.log(num_ip, 2))
+        results.append((starting_ip, mask, mask2))
+         
+    return results
 
 if __name__ == '__main__':
-    generate_routes()
+    parser = argparse.ArgumentParser(description="Generate routing rules for vpn.")
+    parser.add_argument('-p', '--platform',
+                        dest='platform',
+                        default='openvpn',
+                        nargs='?',
+                        help="Target platforms, it can be openvpn, mac, linux, win, android. openvpn by default.")
+    parser.add_argument('-m', '--metric',
+                        dest='metric',
+                        default=5,
+                        nargs='?',
+                        type=int,
+                        help="Metric setting for the route rules")
+    
+    args = parser.parse_args()
+    
+    if args.platform.lower() == 'openvpn':
+        generate_ovpn(args.metric)
+    elif args.platform.lower() == 'linux':
+        generate_linux(args.metric)
+    elif args.platform.lower() == 'mac' or args.platform.lower() == 'darwin':
+        generate_mac(args.metric)
+    elif args.platform.lower() == 'win':
+        generate_win(args.metric)
+    elif args.platform.lower() == 'android':
+        generate_android(args.metric)
+    else:
+        print(f"Platform {args.platform} is not supported.", file=sys.stderr)
+        exit(1)
