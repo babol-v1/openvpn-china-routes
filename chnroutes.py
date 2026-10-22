@@ -19,7 +19,7 @@ def main():
         print(f"数据抓取失败: {e}", file=sys.stderr)
         sys.exit(1)
         
-    print("正在分类解析并转换为纯 CIDR 的 .ovpn 路由指令...")
+    print("正在分类解析并转换为可直接添加至 .ovpn 的标准路由指令...")
     routes_v4 = []
     routes_v6 = []
     
@@ -33,13 +33,24 @@ def main():
             if line.startswith("0.0.0.0"):
                 continue
                 
-            # 区分 IPv4 和 IPv6 并转换为不带 net_gateway 的纯 CIDR 路由前缀格式
+            # 区分 IPv4 和 IPv6 并转换为 OpenVPN 标准支持的格式
             if ':' in line:
-                # 包含冒号的是 IPv6，拼接为 route-ipv6 [网段/掩码]
-                routes_v6.append(f"route-ipv6 {line}")
+                # 包含冒号的是 IPv6，OpenVPN 的 route-ipv6 原生完美支持 CIDR 格式带 net_gateway
+                routes_v6.append(f"route-ipv6 {line} net_gateway")
             else:
-                # 不含冒号的是 IPv4，拼接为 route [网段/掩码]
-                routes_v4.append(f"route {line}")
+                # 不含冒号的是 IPv4。为了确保 100% 兼容，必须将 1.0.1.0/24 拆分为 4段式掩码
+                parts = line.split('/')
+                ip = parts[0]
+                try:
+                    cidr = int(parts[1])
+                    # 将 CIDR 位数（如 24）无损计算转换为 4段式子网掩码（如 255.255.255.0）
+                    mask_bits = (0xffffffff << (32 - cidr)) & 0xffffffff
+                    mask_str = f"{(mask_bits >> 24) & 255}.{(mask_bits >> 16) & 255}.{(mask_bits >> 8) & 255}.{mask_bits & 255}"
+                    
+                    # 组装为 OpenVPN 最稳妥、绝对不会翻车的经典语法格式
+                    routes_v4.append(f"route {ip} {mask_str} net_gateway")
+                except Exception:
+                    continue
 
     if not routes_v4:
         print("错误：未能在数据源中解析到任何有效的 IPv4 中国网段！", file=sys.stderr)
@@ -49,12 +60,12 @@ def main():
     
     # 分别保存为两个独立的、可直接无脑追加到 .ovpn 末尾的文件
     with open('routes.txt', 'w', encoding='utf-8') as f:
-        f.write("# === 全量中国大陆 IPv4 纯 CIDR 路由表（可直接追加至 .ovpn 末尾） ===\n")
+        f.write("# === 全量中国大陆 IPv4 绕行路由表（可直接追加至 .ovpn 末尾） ===\n")
         f.write("\n".join(routes_v4))
         f.write("\n")
         
     with open('routes_v6.txt', 'w', encoding='utf-8') as f:
-        f.write("# === 全量中国大陆 IPv6 纯 CIDR 路由表（可直接追加至 .ovpn 末尾） ===\n")
+        f.write("# === 全量中国大陆 IPv6 绕行路由表（可直接追加至 .ovpn 末尾） ===\n")
         f.write("\n".join(routes_v6))
         f.write("\n")
         
