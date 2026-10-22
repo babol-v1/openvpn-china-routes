@@ -4,7 +4,7 @@ import sys
 
 def main():
     # 采用你指定的 MetaCubeX 官方最新全量中国 GeoIP 地址列表
-    url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/meta/geo/geoip/cn.list'
+    url = 'https://githubusercontent.com'
     print("正在从 MetaCubeX 镜像源抓取最新中国双栈 IP 列表...")
     
     headers = {
@@ -19,7 +19,7 @@ def main():
         print(f"数据抓取失败: {e}", file=sys.stderr)
         sys.exit(1)
         
-    print("正在分类解析并转换为可直接添加至 .ovpn 的路由指令...")
+    print("正在分类解析并转换为纯 CIDR 的 .ovpn 路由指令...")
     routes_v4 = []
     routes_v6 = []
     
@@ -29,17 +29,17 @@ def main():
             continue
             
         if '/' in line:
-            # 过滤掉 Clash 特有的 0.0.0.0 广播或异常网段
+            # 过滤掉 0.0.0.0 广播或异常网段
             if line.startswith("0.0.0.0"):
                 continue
                 
-            # 区分 IPv4 和 IPv6 并自动拼装为 .ovpn 专用的全局配置指令格式
+            # 区分 IPv4 和 IPv6 并转换为不带 net_gateway 的纯 CIDR 路由前缀格式
             if ':' in line:
-                # 包含冒号的是 IPv6 网段，拼装为 route-ipv6 指令
-                routes_v6.append(f"route-ipv6 {line} net_gateway")
+                # 包含冒号的是 IPv6，拼接为 route-ipv6 [网段/掩码]
+                routes_v6.append(f"route-ipv6 {line}")
             else:
-                # 不含冒号的是 IPv4 网段，拼装为 route 指令
-                routes_v4.append(f"route {line} net_gateway")
+                # 不含冒号的是 IPv4，拼接为 route [网段/掩码]
+                routes_v4.append(f"route {line}")
 
     if not routes_v4:
         print("错误：未能在数据源中解析到任何有效的 IPv4 中国网段！", file=sys.stderr)
@@ -47,14 +47,14 @@ def main():
 
     print(f"解析成功！共转换 IPv4 路由指令 {len(routes_v4)} 条，IPv6 路由指令 {len(routes_v6)} 条。")
     
-    # 分别保存为两个独立的、可直接追加到 .ovpn 末尾的文件
+    # 分别保存为两个独立的、可直接无脑追加到 .ovpn 末尾的文件
     with open('routes.txt', 'w', encoding='utf-8') as f:
-        f.write("# === 全量中国大陆 IPv4 绕行路由表（可直接追加至 .ovpn 末尾） ===\n")
+        f.write("# === 全量中国大陆 IPv4 纯 CIDR 路由表（可直接追加至 .ovpn 末尾） ===\n")
         f.write("\n".join(routes_v4))
         f.write("\n")
         
     with open('routes_v6.txt', 'w', encoding='utf-8') as f:
-        f.write("# === 全量中国大陆 IPv6 绕行路由表（可直接追加至 .ovpn 末尾） ===\n")
+        f.write("# === 全量中国大陆 IPv6 纯 CIDR 路由表（可直接追加至 .ovpn 末尾） ===\n")
         f.write("\n".join(routes_v6))
         f.write("\n")
         
