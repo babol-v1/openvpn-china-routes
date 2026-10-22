@@ -2,9 +2,9 @@
 import urllib.request
 import sys
 
-def generate_ovpn_compatible_routes():
-    # 依然采用你指定的 MetaCubeX 官方最新全量中国 GeoIP 地址列表
-    url = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/meta/geo/geoip/cn.list'
+def main():
+    # 采用你指定的 MetaCubeX 官方最新全量中国 GeoIP 地址列表
+    url = 'https://githubusercontent.com'
     print("正在从 MetaCubeX 镜像源抓取最新中国双栈 IP 列表...")
     
     headers = {
@@ -29,7 +29,7 @@ def generate_ovpn_compatible_routes():
             continue
             
         if '/' in line:
-            # 特殊防御：过滤掉 Clash 特有的 0.0.0.0/32 广播或异常网段
+            # 过滤掉 Clash 特有的 0.0.0.0 广播或异常网段
             if line.startswith("0.0.0.0"):
                 continue
                 
@@ -61,4 +61,4 @@ def generate_ovpn_compatible_routes():
     print("routes.txt (IPv4版) 与 routes_v6.txt (IPv6版) 已全部完美生成！")
 
 if __name__ == '__main__':
-    generate_ovpn_routes = generate_ovpn_compatible_routes()
+    main()
