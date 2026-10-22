@@ -24,12 +24,12 @@ def generate_linux(metric):
     
     OLDGW=`ip route show | grep '^default' | sed -e 's/default via \\([^ ]*\\).*/\\1/'`
     
-    if [ $OLDGW == '' ]; then
+    if [ \$OLDGW == '' ]; then
         exit 0
     fi
     
     if [ ! -e /tmp/vpn_oldgw ]; then
-        echo $OLDGW > /tmp/vpn_oldgw
+        echo \$OLDGW > /tmp/vpn_oldgw
     fi
     
     """)
@@ -51,13 +51,12 @@ def generate_linux(metric):
     downfile.write('\n')
     
     for ip, mask, _ in results:
-        upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
+        upfile.write('route add -net %s netmask %s gw \$OLDGW\n' % (ip, mask))
         downfile.write('route del -net %s netmask %s\n' % (ip, mask))
 
     downfile.write('rm /tmp/vpn_oldgw\n')
     upfile.close()
     downfile.close()
-    print("For pptp only, please copy the file ip-pre-up to the folder /etc/ppp, and copy the file ip-down to the folder /etc/ppp/ip-down.d.")
 
 def generate_mac(metric):
     results = fetch_ip_data()
@@ -69,14 +68,14 @@ def generate_mac(metric):
     OLDGW=`netstat -nr | grep '^default' | grep -v 'ppp' | sed 's/default *\\([0-9\.]*\\) .*/\\1/' | awk '{if($1){print $1}}'`
 
     if [ ! -e /tmp/pptp_oldgw ]; then
-        echo "${OLDGW}" > /tmp/pptp_oldgw
+        echo "\${OLDGW}" > /tmp/pptp_oldgw
     fi
     
     dscacheutil -flushcache
 
-    route add 10.0.0.0/8 "${OLDGW}"
-    route add 172.16.0.0/12 "${OLDGW}"
-    route add 192.168.0.0/16 "${OLDGW}"
+    route add 10.0.0.0/8 "\${OLDGW}"
+    route add 172.16.0.0/12 "\${OLDGW}"
+    route add 192.168.0.0/16 "\${OLDGW}"
     """)
     
     downscript_header = textwrap.dedent("""\
@@ -89,9 +88,9 @@ def generate_mac(metric):
     
     OLDGW=`cat /tmp/pptp_oldgw`
 
-    route delete 10.0.0.0/8 "${OLDGW}"
-    route delete 172.16.0.0/12 "${OLDGW}"
-    route delete 192.168.0.0/16 "${OLDGW}"
+    route delete 10.0.0.0/8 "\${OLDGW}"
+    route delete 172.16.0.0/12 "\${OLDGW}"
+    route delete 192.168.0.0/16 "\${OLDGW}"
     """)
     
     upfile = open('ip-up', 'w', encoding='utf-8')
@@ -103,13 +102,12 @@ def generate_mac(metric):
     downfile.write('\n')
     
     for ip, _, mask in results:
-        upfile.write('route add %s/%s "${OLDGW}"\n' % (ip, mask))
-        downfile.write('route delete %s/%s ${OLDGW}\n' % (ip, mask))
+        upfile.write('route add %s/%s "\${OLDGW}"\n' % (ip, mask))
+        downfile.write('route delete %s/%s \${OLDGW}\n' % (ip, mask))
     
     downfile.write('\n\nrm /tmp/pptp_oldgw\n')
     upfile.close()
     downfile.close()
-    print("For pptp on mac only, please copy ip-up and ip-down to the /etc/ppp folder, don't forget to make them executable with the chmod command.")
 
 def generate_win(metric):
     results = fetch_ip_data()  
@@ -134,7 +132,6 @@ def generate_win(metric):
     
     upfile.close()
     downfile.close()
-    print("For pptp on windows only, run vpnup.bat before dialing to vpn, and run vpndown.bat after disconnected from the vpn.")
 
 def generate_android(metric):
     results = fetch_ip_data()
@@ -165,18 +162,16 @@ def generate_android(metric):
     downfile.write('\n')
     
     for ip, mask, _ in results:
-        upfile.write('route add -net %s netmask %s gw $OLDGW\n' % (ip, mask))
+        upfile.write('route add -net %s netmask %s gw \$OLDGW\n' % (ip, mask))
         downfile.write('route del -net %s netmask %s\n' % (ip, mask))
     
     upfile.close()
     downfile.close()
-    print("Old school way to call up/down script from openvpn client. use the regular openvpn 2.1 method to add routes if it's possible")
 
 def fetch_ip_data():
     print("Fetching data from apnic.net, it might take a few minutes, please wait...")
     url = r'https://apnic.net'
     
-    # 【核心修复】模拟真实浏览器请求，防止 APNIC 服务器报 403 拒绝访问
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -196,25 +191,20 @@ def fetch_ip_data():
 
     for item in cndata:
         unit_items = item.split('|')
-        starting_ip = unit_items[3]
-        num_ip = int(unit_items[4])
+        starting_ip = unit_items[3]          # 修复：获取正确的起始IP位置
+        num_ip = int(unit_items[4])          # 修复：获取正确的IP数量位置
         
         imask = 0xffffffff ^ (num_ip - 1)
         imask = hex(imask)[2:]
-        # 补足 8 位
         imask = imask.zfill(8)
         
-        mask = [0] * 4
-        mask[0] = imask[0:2]
-        mask[1] = imask[2:4]
-        mask[2] = imask[4:6]
-        mask[3] = imask[6:8]
-        
+        # 修复：正确解构生成4段式点分十进制掩码
+        mask = [imask[0:2], imask[2:4], imask[4:6], imask[6:8]]
         mask = [int(i, 16) for i in mask]
-        mask = "%d.%d.%d.%d" % tuple(mask)
+        mask_str = "%d.%d.%d.%d" % tuple(mask)
         
         mask2 = 32 - int(math.log(num_ip, 2))
-        results.append((starting_ip, mask, mask2))
+        results.append((starting_ip, mask_str, mask2))
          
     return results
 
