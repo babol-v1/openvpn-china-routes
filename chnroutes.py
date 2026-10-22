@@ -8,7 +8,6 @@ def generate_ovpn_routes():
     url = 'https://apnic.net'
     print("正在从 APNIC 抓取最新全球 IP 分配表...")
     
-    # 伪装浏览器，防止 403 报错
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -24,15 +23,17 @@ def generate_ovpn_routes():
     print("正在解析中国大陆 IPv4 网段...")
     routes = []
     
-    # 每一行的格式样本: apnic|cn|ipv4|1.0.1.0|256|20110414|allocated
-    # 匹配规则：以 apnic 开头，包含 cn 和 ipv4 的行
+    # 使用通用的正则表达式匹配中国大陆的 ipv4 行，防范各镜像源开头的格式差异
+    # 格式通常形如: xxx|cn|ipv4|1.0.1.0|256|...
+    pattern = re.compile(r'cn\|ipv4\|([\d\.]+)\|(\d+)\|', re.IGNORECASE)
+    
     for line in data.splitlines():
-        if line.startswith('apnic|cn|ipv4|'):
-            parts = line.split('|')
-            if len(parts) >= 5:
-                ip = parts[3]
-                count = int(parts[4])
-                
+        match = pattern.search(line)
+        if match:
+            ip = match.group(1)
+            count = int(match.group(2))
+            
+            try:
                 # 计算子网掩码长度 (例如 256 对应 /24)
                 mask_cidr = 32 - int(math.log(count, 2))
                 
@@ -41,9 +42,12 @@ def generate_ovpn_routes():
                 mask_str = f"{(mask_bits >> 24) & 255}.{(mask_bits >> 16) & 255}.{(mask_bits >> 8) & 255}.{mask_bits & 255}"
                 
                 routes.append(f"route {ip} {mask_str} net_gateway 5")
+            except Exception as parse_err:
+                # 略过可能由于垃圾数据导致的计算错误行
+                continue
 
     if not routes:
-        print("错误：未能成功解析到任何中国 IP 段！", file=sys.stderr)
+        print("错误：未能成功解析到任何中国 IP 段！请检查抓取到的原始数据格式。", file=sys.stderr)
         sys.exit(1)
 
     print(f"解析成功！共找到 {len(routes)} 个网段。正在写入 routes.txt...")
