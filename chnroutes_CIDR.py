@@ -46,11 +46,11 @@ def main():
     print(f"提取成功！共获取纯 IPv4 网段 {len(routes_v4)} 条，纯 IPv6 网段 {len(routes_v6)} 条。")
     
     # 分别保存为两个完全干净、无杂质的纯文本文件
-    with open('routes.txt', 'w', encoding='utf-8') as f:
+    with open('routes_CIDR.txt', 'w', encoding='utf-8') as f:
         f.write("\n".join(routes_v4))
         f.write("\n")
         
-    with open('routes_v6.txt', 'w', encoding='utf-8') as f:
+    with open('routes_v6_CIDR.txt', 'w', encoding='utf-8') as f:
         f.write("\n".join(routes_v6))
         f.write("\n")
         
