@@ -36,7 +36,7 @@ def main():
             # 区分 IPv4 和 IPv6 并转换为 OpenVPN 标准支持的格式
             if ':' in line:
                 # 包含冒号的是 IPv6，OpenVPN 的 route-ipv6 原生完美支持 CIDR 格式带 net_gateway
-                routes_v6.append(f"route-ipv6 {line} net_gateway-ipv6")
+                routes_v6.append(f"route-ipv6 {line} fd00:ac68:1::1")
             else:
                 # 不含冒号的是 IPv4。为了确保 100% 兼容，必须将 1.0.1.0/24 拆分为 4段式掩码
                 parts = line.split('/')
